@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Countdown Timer</title>
+<style id="timer-style">
+  :root {
+    --bg: #2B2340;
+    --panel: #3A3155;
+    --text: #FFFFFF;
+    --muted: #C9C0DD;
+    --gold: #D4A24C;
+    --warn: #E8B860;
+    --done: #E07A6B;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Calibri, "Segoe UI", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    user-select: none;
+  }
+  #label {
+    font-family: Cambria, Georgia, serif;
+    font-size: clamp(22px, 4vw, 44px);
+    color: var(--gold);
+    background: transparent;
+    border: none;
+    text-align: center;
+    width: min(90vw, 900px);
+    outline: none;
+    user-select: text;
+  }
+  #label::placeholder { color: var(--muted); opacity: .6; }
+  #time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: clamp(96px, 26vw, 360px);
+    line-height: 1;
+    margin: 2vh 0 1vh;
+    letter-spacing: -0.02em;
+    transition: color .3s;
+  }
+  #time.warn { color: var(--warn); }
+  #time.done { color: var(--done); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  #barwrap {
+    position: relative;
+    width: min(90vw, 900px);
+    padding: 14px 0;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  #bar {
+    height: 10px;
+    background: var(--panel);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  #fill { height: 100%; width: 100%; background: var(--gold); transition: width .25s linear; }
+  #knob {
+    position: absolute; top: 50%; left: 100%;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--gold); border: 3px solid var(--bg);
+    transform: translate(-50%, -50%);
+    transition: left .25s linear;
+  }
+  #barwrap.dragging #fill, #barwrap.dragging #knob { transition: none; }
+  .controls {
+    margin-top: 4vh;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    max-width: 900px;
+  }
+  button, .set input {
+    font: inherit;
+    font-size: 18px;
+    border-radius: 10px;
+    border: 2px solid var(--panel);
+    background: var(--panel);
+    color: var(--text);
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--gold); }
+  button[aria-pressed="true"] { background: transparent; border-color: var(--gold); color: var(--gold); font-weight: 700; }
+  button.primary { background: var(--gold); border-color: var(--gold); color: var(--bg); font-weight: 700; min-width: 120px; }
+  .set { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 18px; }
+  .set input { width: 84px; text-align: center; cursor: text; padding: 10px 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; width: 100%; }
+  .hint { margin-top: 2vh; color: var(--muted); font-size: 14px; opacity: .8; text-align: center; }
+  /* While running: show only the label (if any), the time, the bar and Pause. */
+  body.running .row.setup,
+  body.running .hint,
+  body.running #reset,
+  body.running #plus,
+  body.running #sound,
+  body.running #full,
+  body.running #pop,
+  body.running #warn,
+  body.running #label:placeholder-shown { display: none; }
+  body.running .controls { margin-top: 2vh; }
+
+  /* Message on the main page while the timer is popped out */
+  #note { margin-top: 2vh; color: var(--warn); font-size: 16px; text-align: center; max-width: 900px; }
+  #popped { margin: 3vh 0 1vh; color: var(--muted); font-size: 20px; text-align: center; }
+
+  /* Pop-out (picture-in-picture) window: just the time and bar */
+  body.pip { padding: 8px; cursor: pointer; }
+  body.pip #pipLabel {
+    font-family: Cambria, Georgia, serif; color: var(--gold);
+    font-size: min(9vw, 14vh); max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  body.pip #pipLabel:empty { display: none; }
+  body.pip #time { font-size: min(32vw, 62vh); margin: 0 0 3vh; }
+  body.pip #barwrap { width: 88vw; padding: 10px 0; }
+  body.pip #bar { height: 6px; }
+  body.pip #knob { width: 16px; height: 16px; border-width: 2px; }
+</style>
+</head>
+<body>
+  <input id="label" type="text" placeholder="Type a label (e.g. Discussion)" aria-label="Timer label">
+  <div id="time" aria-live="off">05:00</div>
+  <div id="barwrap" title="Drag to change the time left"><div id="bar"><div id="fill"></div></div><div id="knob"></div></div>
+  <div id="popped" hidden>The timer is popped out. Close the small window, or turn Pop out off, to bring it back here.</div>
+
+  <div class="controls">
+    <div class="row setup">
+      <button data-min="2">2 min</button>
+      <button data-min="5">5 min</button>
+      <button data-min="10">10 min</button>
+      <button data-min="15">15 min</button>
+      <span class="set">
+        <input id="mm" type="number" min="0" max="180" value="5" aria-label="Minutes"> min
+        <input id="ss" type="number" min="0" max="59" value="0" aria-label="Seconds"> sec
+        <button id="set">Set</button>
+      </span>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">Start</button>
+      <button id="reset">Reset</button>
+      <button id="plus">+1 min</button>
+      <button id="sound">Sound: on</button>
+      <button id="warn" aria-pressed="true" title="Soft ding when 1 minute is left">1-min ding</button>
+      <button id="full">Full screen</button>
+      <button id="pop" aria-pressed="false">Pop out</button>
+    </div>
+  </div>
+  <div id="note" role="status" hidden></div>
+  <div class="hint">Space = start / pause &nbsp;·&nbsp; R = reset &nbsp;·&nbsp; + = add 1 min &nbsp;·&nbsp; F = full screen</div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const timeEl = $("time"), fill = $("fill"), startBtn = $("start");
+  const barWrap = $("barwrap"), barTrack = $("bar"), knob = $("knob");
+  let total = 300, remaining = 300, endAt = null, tick = null, soundOn = true, chimed = false, popOn = false, warnOn = true, warned = false, wakeLock = null;
+
+  let noteTimer = null;
+  function note(msg) {
+    const n = $("note");
+    n.textContent = msg; n.hidden = false;
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { n.hidden = true; }, 8000);
+  }
+
+  function save() {
+    try { localStorage.setItem("lgTimer", JSON.stringify({ total, label: $("label").value, soundOn, popOn, warnOn })); } catch (e) {}
+  }
+  function load() {
+    try {
+      const d = JSON.parse(localStorage.getItem("lgTimer") || "null");
+      if (d) { total = remaining = d.total || 300; $("label").value = d.label || ""; soundOn = d.soundOn !== false; popOn = !!d.popOn; warnOn = d.warnOn !== false; }
+    } catch (e) {}
+  }
+
+  function fmt(sec) {
+    sec = Math.max(0, Math.ceil(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+    return h ? h + ":" + mm + ":" + ss : mm + ":" + ss;
+  }
+
+  function render() {
+    timeEl.textContent = fmt(remaining);
+    const pct = (total ? Math.min(1, Math.max(0, remaining / total)) * 100 : 0) + "%";
+    fill.style.width = pct;
+    knob.style.left = pct;
+    timeEl.classList.toggle("done", remaining <= 0);
+    timeEl.classList.toggle("warn", remaining > 0 && remaining <= 60);
+    document.title = (endAt ? "▶ " : "") + fmt(remaining) + " · Countdown Timer";
+    $("mm").value = Math.floor(total / 60);
+    $("ss").value = total % 60;
+    $("sound").textContent = "Sound: " + (soundOn ? "on" : "off");
+    $("pop").setAttribute("aria-pressed", popOn ? "true" : "false");
+    $("warn").setAttribute("aria-pressed", warnOn ? "true" : "false");
+  }
+
+  // Chime repeats until any button (or key) is pressed.
+  const CHIME_GAP_MS = 2200;
+  let chimeTimer = null;
+
+  function chime() {
+    if (!soundOn) return;
+    stopChime();
+    playChimeOnce();
+    chimeTimer = setInterval(playChimeOnce, CHIME_GAP_MS);
+  }
+  function stopChime() { clearInterval(chimeTimer); chimeTimer = null; }
+
+  function playChimeOnce() {
+    if (!soundOn) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.45, 0.9].forEach((t, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = [880, 660, 880][i];
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.8);
+        o.connect(g).connect(ctx.destination);
+        o.start(ctx.currentTime + t);
+        o.stop(ctx.currentTime + t + 0.85);
+      });
+      setTimeout(() => ctx.close && ctx.close(), 2000);
+    } catch (e) {}
+  }
+
+  // One soft ding when 1 minute is left.
+  function ding() {
+    if (!soundOn || !warnOn) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 660;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.4);
+      o.connect(g).connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 1.5);
+      setTimeout(() => ctx.close && ctx.close(), 2000);
+    } catch (e) {}
+  }
+
+  // Keep the screen awake while the timer is running (Chrome / Edge).
+  async function keepAwake() {
+    try {
+      if ("wakeLock" in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      }
+    } catch (e) {}
+  }
+  function allowSleep() {
+    try { if (wakeLock) wakeLock.release(); } catch (e) {}
+    wakeLock = null;
+  }
+  // The browser drops the wake lock when the tab is hidden; take it back on return.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && endAt) keepAwake();
+  });
+
+  function step() {
+    remaining = (endAt - Date.now()) / 1000;
+    if (!warned && remaining > 0 && remaining <= 60) { warned = true; ding(); }
+    if (remaining <= 0) {
+      remaining = 0;
+      stop();
+      if (!chimed) { chimed = true; chime(); }
+    }
+    render();
+  }
+
+  function start() {
+    stopChime();
+    if (remaining <= 0) return;
+    if (popOn && !pipWin) openPip();
+    if (remaining <= 60) warned = true;
+    endAt = Date.now() + remaining * 1000;
+    tick = setInterval(step, 200);
+    keepAwake();
+    startBtn.textContent = "Pause";
+    document.body.classList.add("running");
+    render();
+  }
+  function stop() {
+    clearInterval(tick); tick = null; endAt = null;
+    allowSleep();
+    startBtn.textContent = "Start";
+    document.body.classList.remove("running");
+  }
+  function toggle() { endAt ? (step(), stop(), render()) : start(); }
+
+  function setTotal(sec) {
+    stop(); stopChime();
+    total = remaining = Math.max(1, Math.min(sec, 3 * 3600));
+    chimed = false; warned = remaining <= 60;
+    render(); save();
+  }
+  function reset() { stop(); stopChime(); remaining = total; chimed = false; warned = remaining <= 60; render(); }
+
+  function addMinute() {
+    stopChime();
+    if (endAt) { endAt += 60000; }
+    remaining += 60;
+    if (remaining > total) total = Math.ceil(remaining);
+    chimed = false; warned = remaining <= 60;
+    if (endAt) step(); else render();
+  }
+
+  // ---- Drag the bar to change the time left ----
+  function setRemaining(sec) {
+    stopChime();
+    remaining = sec;
+    if (sec > 0) chimed = false;
+    warned = sec <= 60;
+    if (endAt) { endAt = Date.now() + sec * 1000; step(); } else render();
+  }
+  let dragging = false;
+  function seek(e) {
+    const r = barTrack.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    setRemaining(Math.round(f * total));
+  }
+  barWrap.addEventListener("pointerdown", e => {
+    dragging = true;
+    barWrap.classList.add("dragging");
+    barWrap.setPointerCapture(e.pointerId);
+    seek(e);
+    e.preventDefault();
+  });
+  barWrap.addEventListener("pointermove", e => { if (dragging) seek(e); });
+  ["pointerup", "pointercancel"].forEach(t => barWrap.addEventListener(t, () => {
+    dragging = false;
+    barWrap.classList.remove("dragging");
+  }));
+  // Don't let a drag in the pop-out window count as "click to start / pause".
+  barWrap.addEventListener("click", e => e.stopPropagation());
+
+  document.querySelectorAll("button[data-min]").forEach(b =>
+    b.addEventListener("click", () => setTotal(+b.dataset.min * 60)));
+  $("set").addEventListener("click", () =>
+    setTotal((parseInt($("mm").value, 10) || 0) * 60 + (parseInt($("ss").value, 10) || 0)));
+  ["mm", "ss"].forEach(id => $(id).addEventListener("keydown", e => {
+    if (e.key === "Enter") $("set").click();
+  }));
+  startBtn.addEventListener("click", toggle);
+  $("reset").addEventListener("click", reset);
+  $("plus").addEventListener("click", addMinute);
+  $("warn").addEventListener("click", () => { warnOn = !warnOn; render(); save(); });
+  $("sound").addEventListener("click", () => { soundOn = !soundOn; if (!soundOn) stopChime(); render(); save(); });
+  $("full").addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  });
+  $("label").addEventListener("input", save);
+
+  // Any button click or key press silences a ringing chime.
+  document.addEventListener("click", e => { if (e.target.closest("button")) stopChime(); }, true);
+  document.addEventListener("keydown", stopChime, true);
+
+  // ---- Pop out: floating always-on-top window (Chrome / Edge) ----
+  const popBtn = $("pop"), poppedMsg = $("popped");
+  let pipWin = null, pipLabel = null;
+  const pipSupported = "documentPictureInPicture" in window;
+
+  // Pop out is a setting: when on, the timer pops out each time you press Start.
+  function togglePop() {
+    if (!popOn && !pipSupported) {
+      note("Pop out needs Google Chrome or Microsoft Edge (version 116 or newer).");
+      return;
+    }
+    popOn = !popOn;
+    if (!popOn && pipWin) pipWin.close();
+    render(); save();
+  }
+
+  let pipOpening = false;
+  async function openPip() {
+    if (pipWin || pipOpening || !pipSupported) return;
+    pipOpening = true;
+    try {
+      pipWin = await documentPictureInPicture.requestWindow({ width: 340, height: 190 });
+    } catch (e) {
+      note("Pop out isn't available here (" + e.message + "). Open the timer file directly in Chrome or Edge to use it.");
+      return;
+    } finally {
+      pipOpening = false;
+    }
+    const d = pipWin.document;
+    const st = d.createElement("style");
+    st.textContent = document.getElementById("timer-style").textContent;
+    d.head.appendChild(st);
+    d.title = "Countdown";
+    d.body.classList.add("pip");
+    pipLabel = d.createElement("div");
+    pipLabel.id = "pipLabel";
+    pipLabel.textContent = $("label").value.trim();
+    d.body.append(pipLabel, timeEl, barWrap);
+    // Click the small window: stop a ringing chime, otherwise start / pause.
+    d.addEventListener("click", () => { if (chimeTimer) stopChime(); else toggle(); });
+    d.addEventListener("keydown", e => { stopChime(); onKey(e); });
+    poppedMsg.hidden = false;
+    pipWin.addEventListener("pagehide", () => {
+      stopChime();
+      poppedMsg.before(timeEl, barWrap);
+      poppedMsg.hidden = true;
+      pipWin = null; pipLabel = null;
+    });
+  }
+  popBtn.addEventListener("click", togglePop);
+  $("label").addEventListener("input", () => { if (pipLabel) pipLabel.textContent = $("label").value.trim(); });
+
+  document.addEventListener("keydown", onKey);
+  function onKey(e) {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); toggle(); }
+    else if (e.key === "r" || e.key === "R") reset();
+    else if (e.key === "f" || e.key === "F") $("full").click();
+    else if (e.key === "+" || e.key === "=") addMinute();
+  }
+
+  load();
+  render();
+})();
+</script>
+</body>
+</html>
